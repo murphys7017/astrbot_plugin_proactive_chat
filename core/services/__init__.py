@@ -3,6 +3,7 @@
 from .config_service import ConfigService
 from .lifecycle_service import LifecycleService
 from .personal_runtime_bridge import PersonalRuntimeBridge
+from .proactive_orchestrator import ProactiveOrchestrator
 from .scheduler_service import SchedulerService
 from .session_service import SessionService
 from .storage_service import StorageService
@@ -11,6 +12,7 @@ __all__ = [
     "ConfigService",
     "LifecycleService",
     "PersonalRuntimeBridge",
+    "ProactiveOrchestrator",
     "SchedulerService",
     "SessionService",
     "StorageService",

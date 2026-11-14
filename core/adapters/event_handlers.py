@@ -155,11 +155,8 @@ class EventHandlers:
                 f"[主动消息] 用户已回复喵，已取消 {self.plugin.session_service.get_session_log_str(normalized_session_id, session_config)} 的主动消息任务喵。"
             )
 
-        logger.info(
-            f"[主动消息] 重置 {self.plugin.session_service.get_session_log_str(normalized_session_id, session_config)} 的未回复计数器为0喵。"
-        )
         await self.plugin.scheduler_service.schedule_next_chat_and_save(
-            normalized_session_id, reset_counter=True
+            normalized_session_id
         )
         # 私聊有新消息同样会改变自动触发计时器，需立即同步到管理端。
 
@@ -324,29 +321,12 @@ class EventHandlers:
             normalized_session_id
         )
 
-        async with self.plugin.data_lock:
-            changed = False
-            if normalized_session_id in self.plugin.session_data:
-                current_unanswered = self.plugin.session_data[
+        if contains_group_marker(normalized_session_id):
+            async with self.plugin.data_lock:
+                if self.plugin.scheduler_service.clear_session_schedule_state(
                     normalized_session_id
-                ].get("unanswered_count", 0)
-                self.plugin.session_data[normalized_session_id]["unanswered_count"] = 0
-                changed = True
-                if current_unanswered > 0:
-                    logger.debug(
-                        f"[主动消息] {self.plugin.session_service.get_session_log_str(normalized_session_id, session_config)} 的用户已回复， 未回复计数器已重置喵。"
-                    )
-
-                if contains_group_marker(normalized_session_id):
-                    changed = (
-                        self.plugin.scheduler_service.clear_session_schedule_state(
-                            normalized_session_id
-                        )
-                        or changed
-                    )
-
-            if changed:
-                await self.plugin.storage_service.save_data()
+                ):
+                    await self.plugin.storage_service.save_data()
 
         # 群沉默计时器已在上面重置，插件页面会在下一次轮询读取最新状态。
 

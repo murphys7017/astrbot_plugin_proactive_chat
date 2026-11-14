@@ -71,7 +71,6 @@ class SessionStore:
         for key in [
             "self_id",
             "last_message_time",
-            "unanswered_count",
             "next_trigger_time",
             "last_scheduled_at",
             "last_schedule_min_interval_seconds",
@@ -82,14 +81,6 @@ class SessionStore:
                 continue
             if key not in merged:
                 merged[key] = incoming[key]
-                continue
-
-            # 未回复计数取较大值，防止计数被历史数据覆盖变小。
-            if key == "unanswered_count":
-                if isinstance(merged[key], (int, float)) and isinstance(
-                    incoming[key], (int, float)
-                ):
-                    merged[key] = max(merged[key], incoming[key])
                 continue
 
             # 时间字段取较晚者，确保调度时序单调向前。

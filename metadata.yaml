@@ -2,7 +2,7 @@ name: "astrbot_plugin_proactive_chat"
 display_name: "主动消息 (Proactive Chat)"
 author: "DBJD-CR"
 version: "v1.3.0-beta.2"
-desc: "一个能让 Bot 在私聊和群聊中发起主动消息的插件，拥有上下文感知、持久化数据、动态情绪、免打扰时段和 TTS 集成，并提供 AstrBot Dashboard 插件页面。"
+desc: "一个负责主动调度和事实投递的 AstrBot 插件；最终是否表达、人格渲染和消息发送由 Personal Runtime 统一处理，并提供 Dashboard 插件页面。"
 repo: "https://github.com/murphys7017/astrbot_plugin_proactive_chat"
 astrbot_version: ">=4.24.0"
 support_platforms:
@@ -20,5 +20,4 @@ social_link: https://github.com/DBJD-CR
 tags:
   - 主动消息
   - 拟人
-  - TTS
   - WebUI

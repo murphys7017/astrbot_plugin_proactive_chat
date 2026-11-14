@@ -1,7 +1,7 @@
 """插件入口与装配容器。
 
 主类只负责：装配各服务、注册 AstrBot 事件入口、承载容器级运行时状态。
-具体业务逻辑分布在 services / pipeline / features 中，调用方直接使用对应服务。
+具体业务逻辑分布在 services 中，主动事实统一交给宿主 Personal Runtime。
 """
 
 from __future__ import annotations
@@ -17,12 +17,11 @@ from astrbot.core.config.astrbot_config import AstrBotConfig
 from .core.adapters.event_handlers import EventHandlers
 from .core.commands.plugin_command_service import PluginCommandService
 from .core.domain.domain_enums import TriggerSource
-from .core.pipeline.flow_orchestrator import FlowOrchestrator
-from .core.services.config_assembly_service import ConfigAssemblyService
 from .core.services.config_service import ConfigService
 from .core.services.lifecycle_service import LifecycleService
 from .core.services.personal_runtime_bridge import PersonalRuntimeBridge
 from .core.services.plugin_view_service import PluginViewService
+from .core.services.proactive_orchestrator import ProactiveOrchestrator
 from .core.services.scheduler_service import SchedulerService
 from .core.services.session_service import SessionService
 from .core.services.storage_service import StorageService
@@ -60,12 +59,10 @@ class ProactiveChatPlugin(star.Star):
         self.session_service = SessionService(self)
         self.storage_service = StorageService(self)
         self.config_service = ConfigService(self)
-        # 配置装配：汇总 Feature 自带配置声明并执行一次性数据迁移。
-        self.config_assembly_service = ConfigAssemblyService(self)
         self.scheduler_service = SchedulerService(self)
         self.lifecycle_service = LifecycleService(self)
         self.event_handlers = EventHandlers(self)
-        self.orchestrator = FlowOrchestrator(self)
+        self.orchestrator = ProactiveOrchestrator(self)
         self.personal_runtime_bridge = PersonalRuntimeBridge(self)
         # 指令层：main.py 只保留 @filter.command 薄壳，业务收敛在服务内。
         self.command_service = PluginCommandService(self)

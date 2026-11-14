@@ -170,7 +170,6 @@ class PluginCommandService:
         """构建单个会话的状态文本。"""
         plugin = self.plugin
         session_config = plugin.config_service.get_session_config(session_id)
-        session_data = plugin.session_data.get(session_id, {})
         base_config = self.support.base_config_of(session_id)
         label = self.support.session_label(session_id, session_config)
 
@@ -201,15 +200,6 @@ class PluginCommandService:
         trigger = self.support.describe_next_trigger(session_id, session_config)
         lines.append(self._format_trigger_line(trigger))
 
-        # 人格：只回显会话级配置，避免为一条指令付出完整解析成本。
-        persona_id = str(session_config.get("persona_id") or "").strip()
-        if not persona_id:
-            lines.append("使用的人格：跟随对话 / 全局默认")
-        elif persona_id == "[%None]":
-            lines.append("使用的人格：不使用人格")
-        else:
-            lines.append(f"使用的人格：{persona_id}")
-
         # 自动触发：到点只是“创建待执行任务”，并非直接发送。
         auto_settings = session_config.get("auto_trigger_settings", {})
         if auto_settings.get("enable_auto_trigger", False):
@@ -231,14 +221,6 @@ class PluginCommandService:
         max_interval = schedule_settings.get("max_interval_minutes")
         if min_interval is not None and max_interval is not None:
             lines.append(f"调度区间：{min_interval} - {max_interval} 分钟")
-
-        # 未回复与上限。
-        unanswered = session_data.get("unanswered_count", 0)
-        max_unanswered = int(schedule_settings.get("max_unanswered_times", 0) or 0)
-        if max_unanswered > 0:
-            lines.append(f"未回复次数：{unanswered} / {max_unanswered}")
-        else:
-            lines.append(f"未回复次数：{unanswered}（未设上限）")
 
         # 免打扰。
         quiet_text = self.support.format_quiet_hours(schedule_settings)
@@ -284,26 +266,16 @@ class PluginCommandService:
         blocks: list[str] = []
         for index, session_id in enumerate(sessions, start=1):
             session_config = plugin.config_service.get_session_config(session_id) or {}
-            session_data = plugin.session_data.get(session_id, {})
             label = self.support.session_label(session_id, session_config)
             trigger = self.support.describe_next_trigger(session_id, session_config)
 
             trigger_text = self._format_trigger_line(trigger)
 
-            schedule_settings = session_config.get("schedule_settings", {})
-            max_unanswered = int(schedule_settings.get("max_unanswered_times", 0) or 0)
-            unanswered = session_data.get("unanswered_count", 0)
-            unanswered_text = (
-                f"{unanswered} / {max_unanswered}"
-                if max_unanswered > 0
-                else str(unanswered)
-            )
-
             blocks.append(
                 f"{index}. {label}\n"
                 f"状态：{'✅ 启用' if session_config.get('enable', False) else '⛔ 关闭'}\n"
                 f"{trigger_text}\n"
-                f"未回复：{unanswered_text}"
+                "最终表达：由 Personal Runtime 决定"
             )
 
         return header, blocks
@@ -445,7 +417,7 @@ class PluginCommandService:
                 await plugin.scheduler_service.reset_group_silence_timer(session_id)
             else:
                 await plugin.scheduler_service.schedule_next_chat_and_save(
-                    session_id, reset_counter=False
+                    session_id
                 )
             return ""
 
@@ -549,7 +521,7 @@ class PluginCommandService:
                     await plugin.scheduler_service.reset_group_silence_timer(session_id)
                 else:
                     await plugin.scheduler_service.schedule_next_chat_and_save(
-                        session_id, reset_counter=False
+                        session_id
                     )
         else:
             for session_id in known_sessions:

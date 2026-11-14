@@ -91,7 +91,6 @@ class StateBuilder:
             session_data = plugin.session_data.get(session_id, {})
             auto_settings = session_config.get("auto_trigger_settings", {})
             schedule_settings = session_config.get("schedule_settings", {})
-            context_settings = session_config.get("context_settings", {})
             trigger_delay_minutes = int(
                 auto_settings.get("auto_trigger_after_minutes", 0) or 0
             )
@@ -120,12 +119,6 @@ class StateBuilder:
                     "session_category": self.detect_session_category(
                         normalized_session_id
                     ),
-                    "source_mode": context_settings.get(
-                        "source_mode", "conversation_history"
-                    ),
-                    "max_unanswered_times": schedule_settings.get(
-                        "max_unanswered_times", 0
-                    ),
                     "quiet_hours": schedule_settings.get("quiet_hours", ""),
                     "quiet_hours_enabled": bool(
                         schedule_settings.get("enable_quiet_hours", True)
@@ -138,7 +131,6 @@ class StateBuilder:
                     "started_at": started_at,
                     "window_seconds": trigger_delay_seconds,
                     "progress_percent": progress_percent,
-                    "unanswered_count": session_data.get("unanswered_count", 0),
                     "auto_trigger_after_minutes": trigger_delay_minutes,
                 }
             )
@@ -153,7 +145,6 @@ class StateBuilder:
             )
             session_data = plugin.session_data.get(normalized_session_id, {})
             schedule_settings = session_config.get("schedule_settings", {})
-            context_settings = session_config.get("context_settings", {})
             idle_minutes = int(session_config.get("group_idle_trigger_minutes", 0) or 0)
             idle_seconds = max(0, idle_minutes * 60)
             timer_meta = self.safe_timer_meta(timer, now)
@@ -192,12 +183,6 @@ class StateBuilder:
                     "session_category": self.detect_session_category(
                         normalized_session_id
                     ),
-                    "source_mode": context_settings.get(
-                        "source_mode", "platform_message_history"
-                    ),
-                    "max_unanswered_times": schedule_settings.get(
-                        "max_unanswered_times", 0
-                    ),
                     "quiet_hours": schedule_settings.get("quiet_hours", ""),
                     "quiet_hours_enabled": bool(
                         schedule_settings.get("enable_quiet_hours", True)
@@ -210,7 +195,6 @@ class StateBuilder:
                     "started_at": started_at if started_at else None,
                     "window_seconds": idle_seconds,
                     "progress_percent": progress_percent,
-                    "unanswered_count": session_data.get("unanswered_count", 0),
                     "group_idle_trigger_minutes": idle_minutes,
                     "last_message_time": last_message_time or None,
                     "last_user_time": last_user_time,
@@ -289,8 +273,6 @@ class StateBuilder:
             session_data = plugin.session_data.get(session_id, {})
             session_config = plugin.config_service.get_session_config(session_id) or {}
             schedule_settings = session_config.get("schedule_settings", {})
-            context_settings = session_config.get("context_settings", {})
-            auto_trigger_settings = session_config.get("auto_trigger_settings", {})
             jobs.append(
                 {
                     "id": session_id,
@@ -301,17 +283,9 @@ class StateBuilder:
                         session_id, session_config
                     ),
                     "session_category": self.detect_session_category(session_id),
-                    "source_mode": context_settings.get(
-                        "source_mode", "conversation_history"
-                    ),
-                    "max_unanswered_times": schedule_settings.get(
-                        "max_unanswered_times",
-                        auto_trigger_settings.get("max_unanswered_times", 0),
-                    ),
                     "next_run_time": (
                         job.next_run_time.isoformat() if job.next_run_time else None
                     ),
-                    "unanswered_count": session_data.get("unanswered_count", 0),
                     "manual_trigger_in_progress": session_id
                     in plugin.manual_trigger_sessions,
                     "next_trigger_time": session_data.get("next_trigger_time"),
@@ -371,9 +345,6 @@ class StateBuilder:
                     ),
                     "has_override": bool(
                         plugin.session_override_manager.get_override(session)
-                    ),
-                    "unanswered_count": plugin.session_data.get(session, {}).get(
-                        "unanswered_count", 0
                     ),
                     "manual_trigger_in_progress": session
                     in plugin.manual_trigger_sessions,

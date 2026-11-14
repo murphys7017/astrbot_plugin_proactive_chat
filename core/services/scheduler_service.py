@@ -179,7 +179,6 @@ class SchedulerService:
         self,
         session_id: str,
         *,
-        keep_unanswered_count: bool = True,
         keep_last_message_time: bool = True,
         keep_self_id: bool = True,
     ) -> bool:
@@ -189,8 +188,6 @@ class SchedulerService:
             return False
 
         protected_keys = set()
-        if keep_unanswered_count:
-            protected_keys.add("unanswered_count")
         if keep_last_message_time:
             protected_keys.add("last_message_time")
         if keep_self_id:
@@ -545,9 +542,7 @@ class SchedulerService:
         if restored_count == 0:
             logger.info("[主动消息] 没有需要恢复的定时任务喵。")
 
-    async def schedule_next_chat_and_save(
-        self, session_id: str, reset_counter: bool = False
-    ) -> None:
+    async def schedule_next_chat_and_save(self, session_id: str) -> None:
         """安排下一次主动聊天并立即将状态持久化到文件。
 
         全过程在 data_lock 内完成：迁移会话键 -> 重置计数(可选) ->
@@ -581,11 +576,6 @@ class SchedulerService:
                     plugin.scheduler.remove_job(session_id)
                 except Exception:
                     pass
-
-            if reset_counter:
-                plugin.session_data.setdefault(normalized_session_id, {})[
-                    "unanswered_count"
-                ] = 0
 
             (
                 run_date,
@@ -729,7 +719,7 @@ class SchedulerService:
             if can_reschedule:
                 try:
                     await self.schedule_next_chat_and_save(
-                        normalized_session_id, reset_counter=False
+                        normalized_session_id
                     )
                 except Exception as e:  # noqa: BLE001 - 需保留原计时器
                     logger.error(
@@ -966,7 +956,7 @@ class SchedulerService:
                     logger.info(
                         f"[主动消息] {plugin.session_service.get_session_log_str(session_id)} 的会话数据不存在，创建初始会话数据喵。"
                     )
-                    plugin.session_data[session_id] = {"unanswered_count": 0}
+                    plugin.session_data[session_id] = {}
 
                 current_config = plugin.config_service.get_session_config(session_id)
                 if not current_config or not current_config.get("enable", False):
@@ -975,21 +965,16 @@ class SchedulerService:
                     )
                     return
 
-                current_unanswered = plugin.session_data.get(session_id, {}).get(
-                    "unanswered_count", 0
-                )
-
-            # 与旧实现保持一致：群聊沉默回调只负责“计划”主动消息，
-            # 是否因未回复上限而暂停由 GATE 阶段统一判定。
+            # 群聊沉默回调只负责“计划”主动事实。
             plugin._track_task(
                 asyncio.create_task(
                     plugin.scheduler_service.schedule_next_chat_and_save(
-                        session_id, reset_counter=False
+                        session_id
                     )
                 )
             )
             logger.info(
-                f"[主动消息] {plugin.session_service.get_session_log_str(session_id, current_config)} 已沉默 {idle_minutes} 分钟，开始计划主动消息喵。(当前未回复次数: {current_unanswered})"
+                f"[主动消息] {plugin.session_service.get_session_log_str(session_id, current_config)} 已沉默 {idle_minutes} 分钟，开始计划主动消息喵。"
             )
             # 群沉默计时器已从 group_timers 移除，需立即通知前端清掉这张卡片。
         except Exception as e:

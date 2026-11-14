@@ -39,7 +39,6 @@ class PersonalRuntimeBridge:
         *,
         trigger: TriggerSource,
         session_config: dict[str, Any] | None,
-        unanswered_count: int = 0,
     ) -> bool:
         """提交一次主动事实，不生成用户可见文本。"""
         if self._handle is None:
@@ -52,7 +51,6 @@ class PersonalRuntimeBridge:
         payload = {
             "trigger": trigger.value,
             "session_type": session_type,
-            "unanswered_count": max(0, int(unanswered_count)),
         }
         try:
             result = await self._handle.submit(

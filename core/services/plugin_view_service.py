@@ -98,7 +98,7 @@ class PluginViewService:
             }
 
         await plugin.scheduler_service.schedule_next_chat_and_save(
-            normalized, reset_counter=False
+            normalized
         )
         return {"ok": True, "session": normalized}
 
