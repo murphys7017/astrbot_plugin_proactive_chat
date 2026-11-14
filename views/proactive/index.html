@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>主动消息</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Proactive Chat</p>
+          <h1>主动消息</h1>
+          <p class="muted">运行状态和调度任务。详细配置请使用 AstrBot 的插件配置页。</p>
+        </div>
+        <button id="refresh" class="button secondary" type="button">刷新</button>
+      </header>
+
+      <section id="status" class="stats" aria-live="polite"></section>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <h2>调度任务</h2>
+            <p class="muted">可以手动触发、重新安排或取消单个会话任务。</p>
+          </div>
+          <span id="updated" class="muted"></span>
+        </div>
+        <div id="jobs" class="jobs"></div>
+      </section>
+
+      <p id="error" class="error" role="alert" hidden></p>
+    </main>
+    <script src="/api/plugin/page/bridge-sdk.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

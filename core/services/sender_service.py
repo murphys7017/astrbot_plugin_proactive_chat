@@ -421,15 +421,6 @@ class SenderService:
         except Exception as e:
             logger.error(f"[主动消息] 通过平台 {p_id} 发送失败喵: {e}")
             logger.debug(traceback.format_exc())
-            if plugin.telemetry and plugin.telemetry.enabled:
-                plugin._track_task(
-                    asyncio.create_task(
-                        plugin.telemetry.track_error(
-                            e,
-                            module="core.message_sender._send_chain_direct",
-                        )
-                    )
-                )
             return await self.send_chain_via_core_api(session_id, chain)
 
     async def send_chain_via_core_api(
@@ -559,16 +550,6 @@ class SenderService:
                             await asyncio.sleep(0.5)
             except Exception as e:
                 logger.error(f"[主动消息] 手动TTS流程发生异常喵: {e}")
-                if plugin.telemetry and plugin.telemetry.enabled:
-                    plugin._track_task(
-                        asyncio.create_task(
-                            plugin.telemetry.track_error(
-                                e,
-                                module="core.message_sender._send_proactive_message.tts",
-                            )
-                        )
-                    )
-
         should_send_text = not is_tts_sent or tts_conf.get("always_send_text", True)
 
         any_sent = is_tts_sent
@@ -632,28 +613,6 @@ class SenderService:
                     any_sent = True
                     sent_segments = 1
                 send_count = sent_segments
-
-                if plugin.telemetry and plugin.telemetry.enabled:
-                    plugin._track_task(
-                        asyncio.create_task(
-                            plugin.telemetry.track_feature(
-                                "message_send_result",
-                                {
-                                    "session_type": session_config.get(
-                                        "_session_type", "unknown"
-                                    ),
-                                    "tts_enabled": bool(
-                                        tts_conf.get("enable_tts", True)
-                                    ),
-                                    "tts_sent": is_tts_sent,
-                                    "segmented_enabled": segmented,
-                                    "segment_count": len(send_chain),
-                                    "text_length": len(text),
-                                    "success": any_sent,
-                                },
-                            )
-                        )
-                    )
 
         # 仅在确实送出过消息、且事件未被钩子终止时派发发送后钩子：
         # dispatch_event_hook 会先执行 handler 再检查停止状态，已停止的事件

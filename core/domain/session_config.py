@@ -12,9 +12,6 @@ from typing import Any
 # 一级配置块名称（与 _conf_schema.json 完全一致）
 FRIEND_SETTINGS_KEY = "friend_settings"
 GROUP_SETTINGS_KEY = "group_settings"
-WEB_ADMIN_KEY = "web_admin"
-NOTIFICATION_SETTINGS_KEY = "notification_settings"
-TELEMETRY_CONFIG_KEY = "telemetry_config"
 
 # 会话内二级配置段
 SCHEDULE_SETTINGS_KEY = "schedule_settings"

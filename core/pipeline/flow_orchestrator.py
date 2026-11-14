@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from astrbot.api import logger
@@ -86,15 +85,6 @@ class FlowOrchestrator:
             await plugin.scheduler_service.schedule_next_chat_and_save(session_id)
         except Exception as se:
             logger.error(f"[主动消息] 在错误处理中重新调度失败喵: {se}")
-
-        if error is not None and plugin.telemetry and plugin.telemetry.enabled:
-            plugin._track_task(
-                asyncio.create_task(
-                    plugin.telemetry.track_error(
-                        error, module="core.chat_flow.check_and_chat"
-                    )
-                )
-            )
 
     # ------------------------------------------------------------------
     # 主入口
@@ -286,18 +276,13 @@ class FlowOrchestrator:
         await self._cleanup_group_schedule_state(normalized_session_id)
 
     async def clear_manual_trigger_state(self, session_id: str) -> None:
-        """释放指定会话的手动触发占用状态，并向管理端广播任务刷新。"""
+        """释放指定会话的手动触发占用状态。"""
         plugin = self.plugin
         normalized_session_id = plugin.session_service.normalize_session_id(session_id)
         if normalized_session_id not in plugin.manual_trigger_sessions:
             return
 
         plugin.manual_trigger_sessions.discard(normalized_session_id)
-        if plugin.web_admin_server:
-            try:
-                await plugin.web_admin_server._broadcast_update("jobs")
-            except Exception as e:
-                logger.debug(f"[主动消息] 广播手动触发状态更新失败喵: {e}")
 
 
 __all__ = ["FlowOrchestrator", "StageResult"]

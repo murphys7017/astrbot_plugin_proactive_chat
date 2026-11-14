@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from astrbot.api import logger
@@ -75,20 +74,6 @@ class GatingStage(BaseStage):
             f"[主动消息] 开始生成第 {unanswered_count + 1} 次主动消息喵，当前未回复次数: {unanswered_count} 次喵。"
         )
         # 遥测启用时上报“主动任务已开始”。
-        if plugin.telemetry and plugin.telemetry.enabled:
-            plugin._track_task(
-                asyncio.create_task(
-                    plugin.telemetry.track_feature(
-                        "proactive_task_started",
-                        {
-                            "session_type": session_config.get(
-                                "_session_type", "unknown"
-                            ),
-                            "unanswered_count": unanswered_count,
-                        },
-                    )
-                )
-            )
         return StageResult.CONTINUE
 
 

@@ -4,7 +4,7 @@ main.py 只保留 @filter.command 薄壳，真正逻辑收敛在这里：
 帮助索引、状态查询、立即发送、开关切换、插件重载与进程重启。
 
 所有写操作都遵守同一条链路：权限守卫 -> 参数校验 -> 落盘
--> 重排期或取消任务 -> 广播 Web 控制台 -> 一句话确认回显。
+-> 重排期或取消任务 -> 一句话确认回显。
 """
 
 from __future__ import annotations
@@ -65,16 +65,6 @@ class PluginCommandService:
     # ------------------------------------------------------------------
     # 内部辅助
     # ------------------------------------------------------------------
-    async def _broadcast(self, reason: str) -> None:
-        """广播 Web 控制台刷新（失败不影响指令主流程）。"""
-        web = getattr(self.plugin, "web_admin_server", None)
-        if not web:
-            return
-        try:
-            await web._broadcast_update(reason)
-        except Exception as e:  # noqa: BLE001 - 广播是旁路
-            logger.debug(f"[主动消息] 广播 {reason} 失败喵: {e}")
-
     async def _admin_denied(self, event: Any) -> bool:
         """非管理员时返回 True；调用方负责 yield 权限提示。"""
         return not await self.support.is_plugin_admin(event)
@@ -395,7 +385,6 @@ class PluginCommandService:
             started, message = await self._trigger_session(target)
             if started:
                 label = self.support.session_label(target)
-                await self._broadcast("jobs")
                 yield event.plain_result(
                     f"✅ 已开始为 {label} 立即发送主动消息，请稍候。"
                 )
@@ -418,9 +407,6 @@ class PluginCommandService:
                 started_labels.append(label)
             else:
                 skipped.append(f"{label}：{message}")
-
-        if started_labels:
-            await self._broadcast("jobs")
 
         if started_labels:
             lines = [f"✅ 已开始立即发送 {len(started_labels)} 个会话"]
@@ -624,7 +610,6 @@ class PluginCommandService:
                 yield event.plain_result(f"❌ {reason}")
                 return
 
-            await self._broadcast("session-config")
             label = self.support.session_label(target)
             state_text = "开启" if enabled else "关闭"
             yield event.plain_result(
@@ -654,7 +639,6 @@ class PluginCommandService:
             )
             return
 
-        await self._broadcast("config")
 
         state_text = "开启" if enabled else "关闭"
         if not changed:
@@ -826,63 +810,6 @@ class PluginCommandService:
         )
         # 终止传播：本分支已独占处理，后续同名 handler 直接跳过。
         self._stop_event(event)
-
-    # ------------------------------------------------------------------
-    # Web 端复用入口（供 /api/plugin/reload 与 /api/astrbot/restart 调用）
-    # ------------------------------------------------------------------
-    def register_reload_task(self, background_tasks: Any) -> str:
-        """向 FastAPI BackgroundTasks 注册插件重载任务，返回响应文案。"""
-        plugin_manager = getattr(self.plugin.context, "_star_manager", None)
-        if plugin_manager is None:
-            raise RuntimeError("无法获取 AstrBot 插件管理器")
-
-        plugin_name = self._resolve_registered_plugin_name(plugin_manager)
-        if not plugin_name:
-            raise RuntimeError("无法确认本插件的注册名称，已取消重载")
-
-        async def _run_reload() -> None:
-            try:
-                success, message = await plugin_manager.reload(plugin_name)
-                if not success:
-                    logger.warning(f"[主动消息] Web 端重载插件失败喵: {message}")
-            except Exception as e:  # noqa: BLE001 - 后台任务边界兜底
-                logger.error(f"[主动消息] Web 端重载插件失败喵: {e}")
-
-        async def _dispatch() -> None:
-            # 立即返回独立任务，绝不在请求上下文内等待重载完成。
-            # 登记到 detached 集合：重载会触发 terminate，而 terminate 会取消
-            # 遥测任务集合，用 _track_task 等于让重载任务自己取消自己。
-            self.plugin._track_detached_task(asyncio.create_task(_run_reload()))
-
-        background_tasks.add_task(_dispatch)
-        return "正在重载主动消息插件，请稍候…"
-
-    async def web_restart_astrbot(self) -> tuple[bool, str, int]:
-        """Web 管理端重启 AstrBot 进程。
-
-        Returns:
-            (ok, message, http_status)。http_status 由调用方直接用于响应码，
-            「已有重启任务在进行中」用 409 与真正的失败区分，避免前端把
-            幂等跳过误判为故障。
-        """
-        if is_desktop_managed():
-            return (
-                False,
-                "当前由 AstrBot Desktop 托管运行，无法通过核心命令重启。\n"
-                "请从桌面客户端执行重启或更新。",
-                400,
-            )
-        if is_demo_mode():
-            return False, "演示模式（DEMO_MODE）下不允许执行此操作。", 400
-
-        ok, error = restart_astrbot_in_background()
-        if not ok:
-            if isinstance(error, RestartAlreadyInProgress):
-                return False, "已有 AstrBot 重启任务在进行中，请稍候…", 409
-            logger.error(f"[主动消息] Web 端触发 AstrBot 重启失败喵: {error}")
-            return False, "触发 AstrBot 重启失败，请查看服务端日志", 500
-
-        return True, "已触发 AstrBot 重启，进程将在数秒内重新启动，请稍候…", 200
 
 
 __all__ = [

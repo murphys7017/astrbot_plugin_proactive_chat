@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from astrbot.api import logger
@@ -240,32 +239,9 @@ class LlmService:
         try:
             llm_response_obj = await invoke_provider(provider, req)
             logger.info("[主动消息] 调用 LLM 成功喵。")
-            if plugin.telemetry and plugin.telemetry.enabled:
-                plugin._track_task(
-                    asyncio.create_task(
-                        plugin.telemetry.track_feature(
-                            "llm_generate_result",
-                            {
-                                "provider_mode": "provider_request",
-                                "success": True,
-                                "history_count": len(history_messages),
-                                "extra_part_count": len(req.extra_user_content_parts),
-                            },
-                        )
-                    )
-                )
         except Exception as llm_error:
             logger.error(f"[主动消息] 调用 LLM 失败喵: {llm_error}")
             logger.info(f"[主动消息] 错误类型喵: {type(llm_error).__name__}")
-            if plugin.telemetry and plugin.telemetry.enabled:
-                plugin._track_task(
-                    asyncio.create_task(
-                        plugin.telemetry.track_error(
-                            llm_error,
-                            module="core.llm_adapter._generate_llm_response",
-                        )
-                    )
-                )
             return None, final_user_simulation_prompt
 
         if llm_response_obj is None:
@@ -292,19 +268,6 @@ class LlmService:
                     req, final_user_simulation_prompt
                 )
             logger.warning("[主动消息] LLM 调用失败或返回空内容，重新调度喵。")
-            if plugin.telemetry and plugin.telemetry.enabled:
-                plugin._track_task(
-                    asyncio.create_task(
-                        plugin.telemetry.track_feature(
-                            "llm_generate_result",
-                            {
-                                "provider_mode": "unknown",
-                                "success": False,
-                                "history_count": len(history_messages),
-                            },
-                        )
-                    )
-                )
             return None, final_user_simulation_prompt
 
         # 1.1.3 起拦截 JS 风格的对象字符串化残留；这里升级为清洗后判定，
@@ -332,20 +295,6 @@ class LlmService:
             response_text = cleaned_text
 
         logger.info(f"[主动消息] LLM 已生成文本喵，长度: {len(response_text)}。")
-        if plugin.telemetry and plugin.telemetry.enabled:
-            plugin._track_task(
-                asyncio.create_task(
-                    plugin.telemetry.track_feature(
-                        "llm_response_ready",
-                        {
-                            "response_length": len(response_text),
-                            "session_type": session_config.get(
-                                "_session_type", "unknown"
-                            ),
-                        },
-                    )
-                )
-            )
         return llm_response_obj, self.resolve_final_user_prompt(
             req, final_user_simulation_prompt
         )

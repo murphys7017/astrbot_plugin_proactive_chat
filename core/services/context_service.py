@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from typing import Any
 
@@ -1387,28 +1386,6 @@ class ContextService:
             logger.info(
                 f"[主动消息] 上下文与人格设定已准备完成喵（人格来源：{persona.source_label}）。"
             )
-            if plugin.telemetry and plugin.telemetry.enabled:
-                plugin._track_task(
-                    asyncio.create_task(
-                        plugin.telemetry.track_feature(
-                            "llm_context_prepared",
-                            {
-                                "history_count": len(effective_history_messages),
-                                "conversation_history_count": len(
-                                    pure_history_messages
-                                ),
-                                "context_source_mode": context_settings["source_mode"],
-                                "has_persona": bool(original_system_prompt),
-                                "persona_source": persona.source,
-                                "has_platform_context": bool(platform_context),
-                                "is_new_conversation": effective_session_id
-                                == session_id
-                                and conv_id is not None,
-                            },
-                        )
-                    )
-                )
-
             return {
                 "conv_id": conv_id,
                 "history": effective_history_messages,
@@ -1421,13 +1398,4 @@ class ContextService:
 
         except Exception as e:
             logger.warning(f"[主动消息] 获取上下文或人格失败喵: {e}")
-            if plugin.telemetry and plugin.telemetry.enabled:
-                plugin._track_task(
-                    asyncio.create_task(
-                        plugin.telemetry.track_error(
-                            e,
-                            module="core.llm_adapter._prepare_llm_request",
-                        )
-                    )
-                )
             return None

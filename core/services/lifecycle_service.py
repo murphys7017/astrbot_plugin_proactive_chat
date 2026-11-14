@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 import traceback
 import zoneinfo
 from typing import Any
@@ -31,8 +30,8 @@ class LifecycleService:
     async def initialize(self) -> None:
         """插件的异步初始化函数。
 
-        流程：初始化锁与状态 -> 加载数据 -> 解析时区 -> 启动遥测与调度器 ->
-        依赖平台的恢复流程（平台未就绪时推迟）-> 启动通知中心与 Web 端。
+        流程：初始化锁与状态 -> 加载数据 -> 解析时区 -> 启动调度器 ->
+        依赖平台的恢复流程（平台未就绪时推迟）。
         """
         plugin = self.plugin
         # 复位容器的生命周期状态与并发锁。
@@ -69,19 +68,6 @@ class LifecycleService:
             )
             plugin.timezone = None
 
-        # 遥测启用时安装全局异常处理器与心跳任务。
-        if plugin.telemetry and plugin.telemetry.enabled:
-            loop = asyncio.get_running_loop()
-            plugin._original_exception_handler = loop.get_exception_handler()
-            loop.set_exception_handler(plugin._handle_asyncio_exception)
-            plugin._exception_handler_installed = True
-            plugin._start_time = time.monotonic()
-            plugin._track_task(
-                asyncio.create_task(plugin._deferred_startup_telemetry())
-            )
-            plugin._heartbeat_task = asyncio.create_task(plugin._heartbeat_loop())
-            logger.debug("[主动消息] 已启动遥测心跳任务喵。")
-
         plugin.scheduler = AsyncIOScheduler(timezone=plugin.timezone)
         plugin.scheduler.start()
 
@@ -105,36 +91,6 @@ class LifecycleService:
             plugin._startup_task = asyncio.create_task(
                 self.wait_for_platforms_then_finalize()
             )
-
-        try:
-            if plugin.notification_center:
-                await plugin.notification_center.start()
-        except Exception as e:
-            logger.error(f"[主动消息] 通知系统启动失败喵: {e}")
-            if plugin.telemetry and plugin.telemetry.enabled:
-                plugin._track_task(
-                    asyncio.create_task(
-                        plugin.telemetry.track_error(
-                            e,
-                            module="core.plugin_lifecycle.initialize.notification_center",
-                        )
-                    )
-                )
-
-        try:
-            if plugin.web_admin_server:
-                await plugin.web_admin_server.start()
-        except Exception as e:
-            logger.error(f"[主动消息] Web 管理端启动失败喵: {e}")
-            if plugin.telemetry and plugin.telemetry.enabled:
-                plugin._track_task(
-                    asyncio.create_task(
-                        plugin.telemetry.track_error(
-                            e,
-                            module="core.plugin_lifecycle.initialize.web_admin_server",
-                        )
-                    )
-                )
 
     def are_platforms_available(self) -> bool:
         """判断是否已有可用的 IM 平台适配器实例。"""
@@ -250,7 +206,7 @@ class LifecycleService:
         """插件被卸载或停用时调用的清理函数。
 
         顺序：置终止标记 -> 取消启动任务 -> 关闭调度器 -> 取消各类计时器 ->
-        上报遥测与保存数据 -> 卸载异常处理器 -> 停止 Web 端与通知中心。
+        保存数据。
         """
         plugin = self.plugin
         logger.info("[主动消息] 收到插件终止指令，开始清理资源喵。")
@@ -294,7 +250,7 @@ class LifecycleService:
         plugin.auto_trigger_timers.clear()
         logger.info(f"[主动消息] 已取消 {auto_trigger_count} 个自动触发计时器喵。")
 
-        # 按下述顺序收尾：等待启动任务 -> 遥测 -> 保存数据 -> 停止外部组件。
+        # 按下述顺序收尾：等待启动任务 -> 保存数据。
         try:
             if startup_task:
                 try:
@@ -302,29 +258,7 @@ class LifecycleService:
                 except asyncio.CancelledError:
                     pass
 
-            if plugin._heartbeat_task:
-                plugin._heartbeat_task.cancel()
-                try:
-                    await plugin._heartbeat_task
-                except asyncio.CancelledError:
-                    pass
-                plugin._heartbeat_task = None
-
-            if plugin.telemetry and plugin.telemetry.enabled and plugin._start_time > 0:
-                runtime_seconds = time.monotonic() - plugin._start_time
-                try:
-                    await plugin.telemetry.track_shutdown(
-                        exit_code=0, runtime_seconds=runtime_seconds
-                    )
-                except Exception as e:
-                    logger.debug(f"[主动消息] shutdown 遥测上报失败喵: {e}")
-                await plugin._cleanup_telemetry_tasks()
-
-            if plugin._exception_handler_installed:
-                loop = asyncio.get_running_loop()
-                loop.set_exception_handler(plugin._original_exception_handler)
-                plugin._original_exception_handler = None
-                plugin._exception_handler_installed = False
+            await plugin._cleanup_tasks()
 
             if plugin.data_lock:
                 try:
@@ -334,31 +268,7 @@ class LifecycleService:
                 except Exception as e:
                     logger.error(f"[主动消息] 保存数据时出错喵: {e}")
 
-            if plugin.web_admin_server:
-                try:
-                    await plugin.web_admin_server.stop()
-                except Exception as e:
-                    logger.warning(f"[主动消息] 停止 Web 管理端时出错喵: {e}")
-
-            if plugin.notification_center:
-                try:
-                    await plugin.notification_center.stop()
-                except Exception as e:
-                    logger.warning(f"[主动消息] 停止通知系统时出错喵: {e}")
         except Exception as e:
             logger.error(f"[主动消息] 生命周期终止阶段发生异常喵: {e}")
-            if plugin.telemetry and plugin.telemetry.enabled:
-                try:
-                    await plugin.telemetry.track_error(
-                        e, module="core.plugin_lifecycle.terminate"
-                    )
-                except Exception:
-                    pass
         finally:
-            if plugin.telemetry:
-                try:
-                    await plugin.telemetry.close()
-                except Exception as e:
-                    logger.debug(f"[主动消息] 遥测会话关闭失败喵: {e}")
-
             logger.info("[主动消息] 主动消息插件已终止喵。")
