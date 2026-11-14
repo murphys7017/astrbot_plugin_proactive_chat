@@ -20,12 +20,10 @@ from .core.domain.domain_enums import TriggerSource
 from .core.pipeline.flow_orchestrator import FlowOrchestrator
 from .core.services.config_assembly_service import ConfigAssemblyService
 from .core.services.config_service import ConfigService
-from .core.services.context_service import ContextService
 from .core.services.lifecycle_service import LifecycleService
-from .core.services.llm_service import LlmService
+from .core.services.personal_runtime_bridge import PersonalRuntimeBridge
 from .core.services.plugin_view_service import PluginViewService
 from .core.services.scheduler_service import SchedulerService
-from .core.services.sender_service import SenderService
 from .core.services.session_service import SessionService
 from .core.services.storage_service import StorageService
 from .core.store.override_store import OverrideStore
@@ -65,12 +63,10 @@ class ProactiveChatPlugin(star.Star):
         # 配置装配：汇总 Feature 自带配置声明并执行一次性数据迁移。
         self.config_assembly_service = ConfigAssemblyService(self)
         self.scheduler_service = SchedulerService(self)
-        self.context_service = ContextService(self)
-        self.llm_service = LlmService(self)
-        self.sender_service = SenderService(self)
         self.lifecycle_service = LifecycleService(self)
         self.event_handlers = EventHandlers(self)
         self.orchestrator = FlowOrchestrator(self)
+        self.personal_runtime_bridge = PersonalRuntimeBridge(self)
         # 指令层：main.py 只保留 @filter.command 薄壳，业务收敛在服务内。
         self.command_service = PluginCommandService(self)
 

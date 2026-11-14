@@ -341,7 +341,6 @@ class SchedulerService:
         skipped_existing = 0
         skipped_invalid = 0
         skipped_disabled = 0
-        skipped_max_unanswered = 0
 
         # 私聊会话：仅在 friend_settings 启用时处理。
         friend_settings = plugin.config.get("friend_settings", {})
@@ -358,8 +357,6 @@ class SchedulerService:
                     skipped_invalid += 1
                 elif result == "disabled":
                     skipped_disabled += 1
-                elif result == "max_unanswered":
-                    skipped_max_unanswered += 1
 
         # 群聊会话：仅在 group_settings 启用时处理。
         group_settings = plugin.config.get("group_settings", {})
@@ -376,8 +373,6 @@ class SchedulerService:
                     skipped_invalid += 1
                 elif result == "disabled":
                     skipped_disabled += 1
-                elif result == "max_unanswered":
-                    skipped_max_unanswered += 1
 
         has_auto_trigger_config = False
         if friend_settings.get("auto_trigger_settings", {}).get(
@@ -398,10 +393,6 @@ class SchedulerService:
                     reasons.append(f"{skipped_invalid} 个会话无效或未配置")
                 if skipped_disabled:
                     reasons.append(f"{skipped_disabled} 个会话未启用自动触发")
-                if skipped_max_unanswered:
-                    reasons.append(
-                        f"{skipped_max_unanswered} 个会话已达到未回复次数上限"
-                    )
                 reason_str = "，".join(reasons) if reasons else "未发现可设置的会话"
                 logger.info(
                     f"[主动消息] 检测到自动主动消息配置，但没有需要设置的触发器喵（{reason_str}）。"
@@ -411,8 +402,7 @@ class SchedulerService:
         else:
             logger.info(
                 f"[主动消息] 已为 {auto_trigger_count} 个会话设置自动主动消息触发器喵。"
-                f"（跳过：已有任务 {skipped_existing}，无效 {skipped_invalid}，未启用 {skipped_disabled}，"
-                f"已达未回复上限 {skipped_max_unanswered}）"
+                f"（跳过：已有任务 {skipped_existing}，无效 {skipped_invalid}，未启用 {skipped_disabled}）"
             )
 
     async def setup_auto_trigger_for_session_config(
@@ -421,7 +411,7 @@ class SchedulerService:
         """为指定会话配置设置自动触发器。
 
         返回结果标记：invalid(配置无效) / disabled(未启用) /
-        existing(已有持久化任务) / max_unanswered(已达上限) / created(已创建)。
+        existing(已有持久化任务) / created(已创建)。
         """
         plugin = self.plugin
         session_config = plugin.config_service.get_session_config(session_id)
@@ -445,18 +435,6 @@ class SchedulerService:
                 f"跳过自动触发器设置以避免冲突喵。"
             )
             return "existing"
-
-        schedule_conf = session_config.get("schedule_settings", {})
-        max_unanswered = schedule_conf.get("max_unanswered_times", 3)
-        unanswered_count = plugin.session_data.get(resolved_session_id, {}).get(
-            "unanswered_count", 0
-        )
-        if max_unanswered > 0 and unanswered_count >= max_unanswered:
-            logger.info(
-                f"[主动消息] {plugin.session_service.get_session_log_str(resolved_session_id, session_config)} 的未回复次数 ({unanswered_count}) "
-                f"已达到上限 ({max_unanswered})，跳过初始化自动触发器设置喵。"
-            )
-            return "max_unanswered"
 
         logger.debug(
             f"[主动消息] 正在为 {plugin.session_service.get_session_log_str(resolved_session_id)} 设置自动触发器喵。"
@@ -840,35 +818,23 @@ class SchedulerService:
                 )
                 if had_auto_timer or auto_settings.get("enable_auto_trigger", False):
                     # 先确认能否重建，再取消旧计时器：与 finish_timer 同序。
-                    # 否则 existing / max_unanswered 时旧计时器已丢、卡片也消失，
+                    # 否则 existing 时旧计时器已丢、卡片也消失，
                     # 接口却只返回一个 400。
                     if not auto_settings.get("enable_auto_trigger", False):
                         auto_result = "disabled"
                     elif self.has_related_persisted_task(normalized_session_id):
                         auto_result = "existing"
                     else:
-                        schedule_conf = session_config.get("schedule_settings", {})
-                        max_unanswered = schedule_conf.get("max_unanswered_times", 3)
-                        unanswered_count = plugin.session_data.get(
-                            normalized_session_id, {}
-                        ).get("unanswered_count", 0)
-                        if max_unanswered > 0 and unanswered_count >= max_unanswered:
-                            auto_result = "max_unanswered"
-                        else:
-                            await self.cancel_auto_trigger(normalized_session_id)
-                            # 只清除自动触发自身的基准，用户发言时间保持原样。
-                            self._clear_auto_trigger_baseline(normalized_session_id)
-                            auto_result = (
-                                await self.setup_auto_trigger_for_session_config(
-                                    auto_settings, normalized_session_id
-                                )
-                            )
-                            if auto_result == "created":
-                                reset_done = True
+                        await self.cancel_auto_trigger(normalized_session_id)
+                        # 只清除自动触发自身的基准，用户发言时间保持原样。
+                        self._clear_auto_trigger_baseline(normalized_session_id)
+                        auto_result = await self.setup_auto_trigger_for_session_config(
+                            auto_settings, normalized_session_id
+                        )
+                        if auto_result == "created":
+                            reset_done = True
 
             if not reset_done:
-                if auto_result == "max_unanswered":
-                    return {"ok": False, "reason": "max_unanswered"}
                 if auto_result == "existing":
                     return {"ok": False, "reason": "already_scheduled"}
                 return {"ok": False, "reason": "no_timer_config"}

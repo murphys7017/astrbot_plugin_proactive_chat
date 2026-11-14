@@ -92,14 +92,10 @@ class FlowOrchestrator:
     async def run(
         self, session_id: str, trigger: TriggerSource = TriggerSource.SCHEDULE
     ) -> None:
-        """执行一次完整的主动消息流程。
-
-        构建上下文并交由流水线执行；发生异常时走 _on_abort 兜底；
-        无论成败都会释放手动触发占用状态。
-        """
+        """提交一次主动事实，由宿主 Personal Runtime 完成后续处理。"""
         plugin = self.plugin
         if getattr(plugin, "_terminating", False):
-            logger.debug("[主动消息] 插件正在终止，跳过本次 check_and_chat 喵。")
+            logger.debug("[主动消息] 插件正在终止，跳过本次主动事实喵。")
             return
 
         normalized_session_id = plugin.session_service.normalize_session_id(session_id)
@@ -107,28 +103,48 @@ class FlowOrchestrator:
             session_config = plugin.config_service.get_session_config(
                 normalized_session_id
             )
-            ctx = build_context(
+            accepted = await plugin.personal_runtime_bridge.submit_due(
                 normalized_session_id,
-                plugin.session_service.build_session_key(normalized_session_id),
-                trigger,
-                session_config,
-                plugin.session_data.get(normalized_session_id, {}).get(
+                trigger=trigger,
+                session_config=session_config,
+                unanswered_count=plugin.session_data.get(normalized_session_id, {}).get(
                     "unanswered_count", 0
                 ),
             )
 
-            runner = self._runner or self.build_pipeline()
-            await runner.run(ctx)
-        except Exception as e:
-            await self._on_abort(
-                build_context(
-                    normalized_session_id,
-                    plugin.session_service.build_session_key(normalized_session_id),
-                    trigger,
-                    None,
-                ),
-                e,
+            parsed_session = plugin.session_service.parse_session_id(
+                normalized_session_id
             )
+            is_friend_session = bool(parsed_session) and is_friend_type(
+                parsed_session[1]
+            )
+            if is_friend_session:
+                await plugin.scheduler_service.schedule_next_chat_and_save(
+                    normalized_session_id,
+                    reset_counter=False,
+                )
+            else:
+                async with plugin.data_lock:
+                    if plugin.scheduler_service.clear_session_schedule_state(
+                        normalized_session_id
+                    ):
+                        await plugin.storage_service.save_data()
+
+            logger.info(
+                "[主动消息] 已将主动事实交给 Personal Runtime：session=%s accepted=%s trigger=%s",
+                normalized_session_id,
+                accepted,
+                trigger.value,
+            )
+        except Exception as e:
+            logger.exception("[主动消息] Personal Runtime 主动事实提交失败：session=%s", normalized_session_id)
+            try:
+                await plugin.scheduler_service.schedule_next_chat_and_save(
+                    normalized_session_id,
+                    reset_counter=False,
+                )
+            except Exception:
+                logger.exception("[主动消息] 主动事实失败后的重新排期失败：session=%s", normalized_session_id)
         finally:
             await self.clear_manual_trigger_state(normalized_session_id)
 
