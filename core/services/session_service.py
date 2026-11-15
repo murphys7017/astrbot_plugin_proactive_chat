@@ -187,6 +187,37 @@ class SessionService:
 
         return matched, has_unavailable
 
+    def resolve_config_session_ids(
+        self, raw_session_id: str, message_type: str
+    ) -> list[str]:
+        """Resolve one configured full UMO or a safe bare target ID.
+
+        Bare IDs are expanded only when their known platform is unambiguous.
+        This keeps startup scheduling consistent with the command and Dashboard
+        paths instead of silently selecting the first active platform.
+        """
+        raw = str(raw_session_id or "").strip()
+        if not raw:
+            return []
+
+        parsed = self.parse_session_id(raw)
+        if parsed:
+            return [self.normalize_session_id(raw)]
+
+        known, has_unavailable = self.find_known_umos_by_target(
+            raw,
+            group=is_group_type(message_type),
+        )
+        if known:
+            return list(dict.fromkeys(self.normalize_session_id(item) for item in known))
+        if has_unavailable:
+            return []
+
+        active_ids = sorted(self.active_platform_ids())
+        if len(active_ids) != 1:
+            return []
+        return [f"{active_ids[0]}:{message_type}:{raw}"]
+
     def resolve_full_umo(
         self, target_id: str, msg_type: str, preferred_platform: str | None = None
     ) -> str:

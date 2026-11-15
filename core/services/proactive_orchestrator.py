@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from astrbot.api import logger
@@ -15,6 +16,14 @@ class ProactiveOrchestrator:
 
     def __init__(self, plugin: Any) -> None:
         self.plugin = plugin
+        self._run_locks: dict[str, asyncio.Lock] = {}
+
+    def _run_lock(self, session_id: str) -> asyncio.Lock:
+        lock = self._run_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._run_locks[session_id] = lock
+        return lock
 
     async def run(
         self,
@@ -27,6 +36,23 @@ class ProactiveOrchestrator:
             return
 
         normalized = plugin.session_service.normalize_session_id(session_id)
+        run_lock = self._run_lock(normalized)
+        if run_lock.locked():
+            if trigger is TriggerSource.MANUAL:
+                await self.clear_manual_trigger_state(normalized)
+                logger.info(
+                    "[主动消息] 会话已有主动流程运行，跳过重复手动触发：session=%s",
+                    normalized,
+                )
+            else:
+                logger.debug(
+                    "[主动消息] 会话已有主动流程运行，跳过重复调度：session=%s trigger=%s",
+                    normalized,
+                    trigger.value,
+                )
+            return
+
+        await run_lock.acquire()
         try:
             session_config = plugin.config_service.get_session_config(normalized)
             if not session_config or not session_config.get("enable", False):
@@ -93,6 +119,7 @@ class ProactiveOrchestrator:
                     normalized,
                 )
         finally:
+            run_lock.release()
             await self.clear_manual_trigger_state(normalized)
 
     async def clear_manual_trigger_state(self, session_id: str) -> None:

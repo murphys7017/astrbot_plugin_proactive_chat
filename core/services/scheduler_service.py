@@ -130,7 +130,7 @@ class SchedulerService:
         plugin = self.plugin
         session_id = plugin.session_service.normalize_session_id(session_id)
         session_config = plugin.config_service.get_session_config(session_id)
-        if not session_config:
+        if not session_config or not session_config.get("enable", False):
             return
 
         auto_trigger_settings = session_config.get("auto_trigger_settings", {})
@@ -169,7 +169,9 @@ class SchedulerService:
             plugin._track_task(
                 asyncio.create_task(
                     self.handle_auto_trigger_callback(
-                        captured_session_id, auto_trigger_minutes
+                        captured_session_id,
+                        auto_trigger_minutes,
+                        timer_generation=token,
                     )
                 )
             )
@@ -195,8 +197,8 @@ class SchedulerService:
         parsed = plugin.session_service.parse_session_id(normalized_session_id)
         target_scope = None
         if parsed:
-            _, msg_type, target_id = parsed
-            target_scope = (is_friend_type(msg_type), target_id)
+            platform, msg_type, target_id = parsed
+            target_scope = (platform, is_friend_type(msg_type), target_id)
 
         matched: list[str] = []
         for timer_key in list(plugin.auto_trigger_timers.keys()):
@@ -208,10 +210,11 @@ class SchedulerService:
             key_parsed = plugin.session_service.parse_session_id(str(timer_key))
             if not key_parsed:
                 continue
-            _, key_type, key_target = key_parsed
+            key_platform, key_type, key_target = key_parsed
             if (
-                is_friend_type(key_type) == target_scope[0]
-                and key_target == target_scope[1]
+                key_platform == target_scope[0]
+                and is_friend_type(key_type) == target_scope[1]
+                and key_target == target_scope[2]
             ):
                 matched.append(timer_key)
         return matched
@@ -431,34 +434,50 @@ class SchedulerService:
         # 私聊会话：仅在 friend_settings 启用时处理。
         friend_settings = plugin.config.get("friend_settings", {})
         if friend_settings.get("enable", False):
-            for session_id in friend_settings.get("session_list", []):
-                result = await self.setup_auto_trigger_for_session_config(
-                    friend_settings, session_id
+            for raw_session_id in friend_settings.get("session_list", []):
+                resolved_ids = plugin.session_service.resolve_config_session_ids(
+                    raw_session_id,
+                    "FriendMessage",
                 )
-                if result == "created":
-                    auto_trigger_count += 1
-                elif result == "existing":
-                    skipped_existing += 1
-                elif result == "invalid":
+                if not resolved_ids:
                     skipped_invalid += 1
-                elif result == "disabled":
-                    skipped_disabled += 1
+                    continue
+                for session_id in resolved_ids:
+                    result = await self.setup_auto_trigger_for_session_config(
+                        friend_settings, session_id
+                    )
+                    if result == "created":
+                        auto_trigger_count += 1
+                    elif result == "existing":
+                        skipped_existing += 1
+                    elif result == "invalid":
+                        skipped_invalid += 1
+                    elif result == "disabled":
+                        skipped_disabled += 1
 
         # 群聊会话：仅在 group_settings 启用时处理。
         group_settings = plugin.config.get("group_settings", {})
         if group_settings.get("enable", False):
-            for session_id in group_settings.get("session_list", []):
-                result = await self.setup_auto_trigger_for_session_config(
-                    group_settings, session_id
+            for raw_session_id in group_settings.get("session_list", []):
+                resolved_ids = plugin.session_service.resolve_config_session_ids(
+                    raw_session_id,
+                    "GroupMessage",
                 )
-                if result == "created":
-                    auto_trigger_count += 1
-                elif result == "existing":
-                    skipped_existing += 1
-                elif result == "invalid":
+                if not resolved_ids:
                     skipped_invalid += 1
-                elif result == "disabled":
-                    skipped_disabled += 1
+                    continue
+                for session_id in resolved_ids:
+                    result = await self.setup_auto_trigger_for_session_config(
+                        group_settings, session_id
+                    )
+                    if result == "created":
+                        auto_trigger_count += 1
+                    elif result == "existing":
+                        skipped_existing += 1
+                    elif result == "invalid":
+                        skipped_invalid += 1
+                    elif result == "disabled":
+                        skipped_disabled += 1
 
         has_auto_trigger_config = False
         if friend_settings.get("auto_trigger_settings", {}).get(
@@ -631,7 +650,12 @@ class SchedulerService:
         if restored_count == 0:
             logger.info("[主动消息] 没有需要恢复的定时任务喵。")
 
-    async def schedule_next_chat_and_save(self, session_id: str) -> None:
+    async def schedule_next_chat_and_save(
+        self,
+        session_id: str,
+        *,
+        expected_silence_generation: int | None = None,
+    ) -> None:
         """安排下一次主动聊天并立即将状态持久化到文件。
 
         全过程在 data_lock 内完成：迁移会话键 -> 重置计数(可选) ->
@@ -643,12 +667,17 @@ class SchedulerService:
 
         normalized_session_id = plugin.session_service.normalize_session_id(session_id)
         session_config = plugin.config_service.get_session_config(normalized_session_id)
-        if not session_config:
+        if not session_config or not session_config.get("enable", False):
             return
 
         schedule_conf = session_config.get("schedule_settings", {})
 
         async with plugin.data_lock:
+            if expected_silence_generation is not None and (
+                self._current_timer_generation(f"silence:{normalized_session_id}")
+                != expected_silence_generation
+            ):
+                return
             # 若传入的是非规范键，先把其数据迁移到规范键下。
             plugin.storage_service.migrate_session_key(
                 session_id,
@@ -929,7 +958,11 @@ class SchedulerService:
         plugin.auto_trigger_baselines[session_id] = time.time()
 
     async def handle_auto_trigger_callback(
-        self, session_id: str, auto_trigger_minutes: int | float
+        self,
+        session_id: str,
+        auto_trigger_minutes: int | float,
+        *,
+        timer_generation: int = 0,
     ) -> None:
         """在异步上下文中处理自动触发回调。
 
@@ -943,6 +976,14 @@ class SchedulerService:
         session_id = plugin.session_service.normalize_session_id(session_id)
         try:
             async with plugin.data_lock:
+                if timer_generation and (
+                    self._current_timer_generation(f"auto:{session_id}")
+                    != timer_generation
+                ):
+                    logger.debug(
+                        f"[主动消息] {plugin.session_service.get_session_log_str(session_id)} 的自动触发回调已被重置取代，跳过喵。"
+                    )
+                    return
                 if session_id not in plugin.auto_trigger_timers:
                     logger.debug(
                         f"[主动消息] {plugin.session_service.get_session_log_str(session_id)} 的自动触发已被取消，跳过喵。"
@@ -1000,8 +1041,12 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"[主动消息] 自动触发任务创建失败喵: {e}")
         finally:
-            for timer_key in self.iter_related_auto_trigger_keys(session_id):
-                plugin.auto_trigger_timers.pop(timer_key, None)
+            if not timer_generation or (
+                self._current_timer_generation(f"auto:{session_id}")
+                == timer_generation
+            ):
+                for timer_key in self.iter_related_auto_trigger_keys(session_id):
+                    plugin.auto_trigger_timers.pop(timer_key, None)
             # 计时器已从内存移除，卡片必须同步消失，否则会残留过期状态。
 
     async def handle_group_silence_callback(
@@ -1053,7 +1098,8 @@ class SchedulerService:
             plugin._track_task(
                 asyncio.create_task(
                     plugin.scheduler_service.schedule_next_chat_and_save(
-                        session_id
+                        session_id,
+                        expected_silence_generation=timer_generation,
                     )
                 )
             )
