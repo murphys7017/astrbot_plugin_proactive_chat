@@ -57,8 +57,8 @@ def is_group_type(message_type: str) -> bool:
 
 
 def contains_group_marker(umo: str) -> bool:
-    """粗粒度群聊判定：UMO 整串是否含 group。"""
-    return "group" in (umo or "").lower()
+    """兼容旧调用方的群聊判定，统一按消息类型段识别 Guild。"""
+    return is_group_umo(umo)
 
 
 @dataclass(frozen=True)

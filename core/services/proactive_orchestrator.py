@@ -29,34 +29,53 @@ class ProactiveOrchestrator:
         normalized = plugin.session_service.normalize_session_id(session_id)
         try:
             session_config = plugin.config_service.get_session_config(normalized)
-            accepted = await plugin.personal_runtime_bridge.submit_due(
+            if not session_config or not session_config.get("enable", False):
+                async with plugin.data_lock:
+                    if plugin.scheduler_service.clear_session_schedule_state(normalized):
+                        await plugin.storage_service.save_data()
+                logger.info(
+                    "[主动消息] 会话已禁用或配置不存在，清理主动任务：session=%s",
+                    normalized,
+                )
+                return
+
+            submission = await plugin.personal_runtime_bridge.submit_due(
                 normalized,
                 trigger=trigger,
                 session_config=session_config,
             )
             parsed = plugin.session_service.parse_session_id(normalized)
-            if not accepted:
+            if not submission.admitted and submission.retryable:
                 logger.warning(
-                    "[主动消息] Personal Runtime 未接纳主动事实，已重新排期：session=%s trigger=%s",
+                    "[主动消息] Personal Runtime 未接纳主动事实，已重新排期：session=%s trigger=%s reason=%s",
                     normalized,
                     trigger.value,
+                    submission.reason,
                 )
                 await plugin.scheduler_service.schedule_next_chat_and_save(
                     normalized,
                 )
-            elif parsed and is_friend_type(parsed[1]):
+            elif submission.admitted and parsed and is_friend_type(parsed[1]):
                 await plugin.scheduler_service.schedule_next_chat_and_save(
                     normalized,
                 )
             else:
+                if not submission.admitted:
+                    logger.info(
+                        "[主动消息] Personal Runtime 已终止接纳本次事实，清理当前任务：session=%s status=%s reason=%s",
+                        normalized,
+                        submission.status,
+                        submission.reason,
+                    )
                 async with plugin.data_lock:
                     if plugin.scheduler_service.clear_session_schedule_state(normalized):
                         await plugin.storage_service.save_data()
 
             logger.info(
-                "[主动消息] 已将主动事实交给 Personal Runtime：session=%s accepted=%s trigger=%s",
+                "[主动消息] 已将主动事实交给 Personal Runtime：session=%s admitted=%s status=%s trigger=%s",
                 normalized,
-                accepted,
+                submission.admitted,
+                submission.status,
                 trigger.value,
             )
         except Exception:

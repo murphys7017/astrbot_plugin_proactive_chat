@@ -29,7 +29,7 @@
 
 在 AstrBot 插件管理器中安装本仓库，或把插件目录放到 `data/plugins/astrbot_plugin_proactive_chat`。安装后在插件配置中选择需要启用的私聊或群聊会话。
 
-插件需要宿主提供 Runtime Observation Sensor API。旧版 AstrBot 没有这个能力时，插件会保留调度状态，但不会绕过 Personal Runtime 直接发送消息。
+插件需要宿主提供 Runtime Observation Sensor API。旧版 AstrBot 没有这个能力时，插件不会绕过 Personal Runtime 直接发送消息，也不会不断重建无法提交的任务。
 
 ## 配置
 
@@ -124,9 +124,10 @@
 ## 失败和重排期
 
 - Personal Runtime 接纳事实后，私聊继续安排下一次调度，群聊清理当前调度状态并等待下一次群聊沉默流程。
-- Personal Runtime 未接纳事实或传感器不可用时，插件会记录警告并重新排期，不会直接发送备用文本。
+- Personal Runtime 因临时过期或平台短暂不可用而未接纳事实时，插件会记录原因并重新排期。
+- Personal Runtime 对事实作出终止性拒绝，或传感器不可用、会话已关闭时，插件会清理当前任务，不会无意义地循环重排。
 - 插件终止期间不会提交新的事实。
-- 平台不支持主动消息或 Personal Runtime 时，事实会被拒绝并重新排期。
+- 平台支持能力不足时，当前事实会结束，不会退回插件自己的消息发送路径。
 
 这保证了插件失败时不会出现“插件自己发一条、Personal 又发一条”的双重输出。
 

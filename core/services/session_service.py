@@ -11,7 +11,12 @@ from astrbot.api import logger
 from astrbot.core.platform.platform import PlatformStatus
 
 from ..adapters.astrbot_platform import iter_active_platform_instances
-from ..domain.session_key import SessionKey, is_friend_type, is_group_type
+from ..domain.session_key import (
+    SessionKey,
+    is_friend_type,
+    is_group_type,
+    normalize_storage_umo,
+)
 
 
 class SessionService:
@@ -230,10 +235,9 @@ class SessionService:
         return f"{fallback_p_id}:{msg_type}:{target_id}"
 
     def normalize_session_id(self, session_id: str) -> str:
-        """规范化 UMO，确保使用可运行的平台前缀。"""
-        parsed = self.parse_session_id(session_id)
-        if not parsed:
-            return session_id
+        """规范化 UMO，但保留调用方明确给出的平台归属。
 
-        platform, msg_type, target_id = parsed
-        return self.resolve_full_umo(target_id, msg_type, platform)
+        平台选择只应发生在配置中的裸 target ID 补全阶段。对完整 UMO
+        回退到当前第一个运行平台，会把同 ID 的跨平台会话错误合并。
+        """
+        return normalize_storage_umo(session_id)

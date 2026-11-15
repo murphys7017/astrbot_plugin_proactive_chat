@@ -313,28 +313,12 @@ class PluginCommandService:
             (started, message)。started 为 False 时 message 是拒绝原因。
         """
         plugin = self.plugin
-        if session_id in plugin.manual_trigger_sessions:
-            return False, "该会话正在发送中，请等待发送完成。"
+        _, rejection = await plugin.scheduler_service.reserve_manual_trigger(
+            session_id
+        )
+        if rejection:
+            return False, rejection
 
-        disabled_reason = self._session_disabled_reason(session_id)
-        if disabled_reason:
-            return False, disabled_reason
-
-        session_config = plugin.config_service.get_session_config(session_id) or {}
-        if not session_config.get("enable", False):
-            return False, "该会话已被单独关闭，请先执行 /主动消息开关 on。"
-
-        schedule_settings = session_config.get("schedule_settings", {})
-        if schedule_settings.get("enable_quiet_hours", True) and is_quiet_time(
-            str(schedule_settings.get("quiet_hours", "") or ""), plugin.timezone
-        ):
-            return (
-                False,
-                f"当前处于免打扰时段（{self.support.format_quiet_hours(schedule_settings)}），"
-                "主动消息会被拦截。",
-            )
-
-        plugin.manual_trigger_sessions.add(session_id)
         plugin._track_task(
             asyncio.create_task(
                 plugin.check_and_chat(session_id, trigger=TriggerSource.MANUAL)
@@ -449,6 +433,11 @@ class PluginCommandService:
                     timer.cancel()
                 except Exception:
                     pass
+
+        plugin.scheduler_service.clear_session_runtime_state(
+            session_id,
+            clear_message_time=True,
+        )
 
         async with plugin.data_lock:
             payload = plugin.session_data.get(session_id)

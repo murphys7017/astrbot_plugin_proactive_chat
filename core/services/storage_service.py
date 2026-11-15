@@ -35,6 +35,29 @@ class StorageService:
         """转发到 SessionStore 的会话数据合并实现。"""
         return self._store.merge_session_info(base, incoming)
 
+    def migrate_session_key(
+        self, source_session_id: str, normalized_session_id: str
+    ) -> bool:
+        """Merge a raw session key into its canonical key without clobbering state."""
+        data = self.plugin.session_data
+        if (
+            source_session_id == normalized_session_id
+            or source_session_id not in data
+        ):
+            return False
+
+        incoming = data.get(source_session_id)
+        existing = data.get(normalized_session_id)
+        if isinstance(existing, dict) and isinstance(incoming, dict):
+            data[normalized_session_id] = self._store.merge_session_info(
+                existing,
+                incoming,
+            )
+        elif isinstance(incoming, dict) or normalized_session_id not in data:
+            data[normalized_session_id] = incoming
+        del data[source_session_id]
+        return True
+
     def normalize_session_data(self) -> bool:
         """规范化并合并 session_data 中的重复会话键。
 

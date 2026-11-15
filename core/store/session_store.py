@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import aiofiles
@@ -43,18 +46,31 @@ class SessionStore:
         return {}
 
     async def save(self, session_data: dict) -> None:
-        """将会话数据保存到文件。"""
+        """将会话数据原子保存到文件。"""
+        temp_path = None
         try:
             await aio_os.makedirs(self.data_dir, exist_ok=True)
-            async with aiofiles.open(
-                self.session_data_file, "w", encoding="utf-8"
-            ) as f:
-                content_to_write = await asyncio.to_thread(
-                    json.dumps, session_data, indent=4, ensure_ascii=False
-                )
+            content_to_write = await asyncio.to_thread(
+                json.dumps, session_data, indent=4, ensure_ascii=False
+            )
+            fd, temp_name = tempfile.mkstemp(
+                prefix=f".{self.session_data_file.name}.",
+                suffix=".tmp",
+                dir=self.data_dir,
+            )
+            os.close(fd)
+            temp_path = Path(temp_name)
+            async with aiofiles.open(temp_path, "w", encoding="utf-8") as f:
                 await f.write(content_to_write)
+            await asyncio.to_thread(os.replace, temp_path, self.session_data_file)
         except OSError as e:
             logger.error(f"[主动消息] 保存会话数据失败喵: {e}")
+        finally:
+            if temp_path is not None:
+                try:
+                    await asyncio.to_thread(temp_path.unlink, missing_ok=True)
+                except OSError:
+                    pass
 
     # ------------------------------------------------------------------
     # 合并与规范化（保留旧逻辑以兼容历史数据）

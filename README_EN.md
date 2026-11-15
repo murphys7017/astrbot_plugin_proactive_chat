@@ -65,7 +65,7 @@ Available commands:
 
 ## Failure behavior
 
-If Personal Runtime does not admit a fact, the plugin records a warning and schedules the next attempt. It never falls back to a direct message. Unsupported platforms and unavailable sensor APIs follow the same safe path.
+If a fact is rejected because it expired or a platform is temporarily unavailable, the plugin records the reason and schedules a later attempt. Terminal rejections, disabled sessions, and unavailable sensor APIs clear the current task instead of creating an endless retry loop. The plugin never falls back to a direct message.
 
 ## Project layout
 

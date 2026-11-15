@@ -29,17 +29,10 @@ class EventHandlers:
     # ------------------------------------------------------------------
     def _migrate_raw_key(self, session_id: str, normalized_session_id: str) -> bool:
         """把 raw 键的载荷并入规范键，返回是否有变更。"""
-        if (
-            normalized_session_id == session_id
-            or session_id not in self.plugin.session_data
-        ):
-            return False
-        existing_payload = self.plugin.session_data.get(session_id, {})
-        self.plugin.session_data.setdefault(normalized_session_id, {}).update(
-            existing_payload
+        return self.plugin.storage_service.migrate_session_key(
+            session_id,
+            normalized_session_id,
         )
-        del self.plugin.session_data[session_id]
-        return True
 
     # ------------------------------------------------------------------
     # 内部辅助：用户消息时间记录

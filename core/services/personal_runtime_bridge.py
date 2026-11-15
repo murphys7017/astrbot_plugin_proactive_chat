@@ -20,6 +20,16 @@ class ProactiveObservationSensor:
     source_id: str = "scheduled_proactive_message"
 
 
+@dataclass(frozen=True, slots=True)
+class ProactiveSubmissionResult:
+    """Preserve the Runtime admission boundary for scheduler decisions."""
+
+    admitted: bool
+    retryable: bool
+    status: str
+    reason: str
+
+
 class PersonalRuntimeBridge:
     """把主动调度事件投递到宿主 Personal Runtime。"""
 
@@ -39,10 +49,15 @@ class PersonalRuntimeBridge:
         *,
         trigger: TriggerSource,
         session_config: dict[str, Any] | None,
-    ) -> bool:
+    ) -> ProactiveSubmissionResult:
         """提交一次主动事实，不生成用户可见文本。"""
         if self._handle is None:
-            return False
+            return ProactiveSubmissionResult(
+                admitted=False,
+                retryable=False,
+                status="unavailable",
+                reason="sensor_unavailable",
+            )
 
         session_type = ""
         if isinstance(session_config, dict):
@@ -61,14 +76,44 @@ class PersonalRuntimeBridge:
                 coalesce_key="schedule_due",
             )
         except Exception as exc:  # noqa: BLE001 - 事实投递失败需回到调度兜底
+            message = str(exc)
+            permanent = (
+                "disabled for this session" in message
+                or "sensor plugin is inactive" in message
+                or "Invalid Runtime Observation session" in message
+            )
             logger.warning(
                 "[主动消息] Personal Runtime 事实投递失败：session=%s error=%s",
                 session_id,
                 exc,
             )
-            return False
+            return ProactiveSubmissionResult(
+                admitted=False,
+                retryable=not permanent,
+                status="error",
+                reason=message or "runtime_submission_error",
+            )
 
-        return bool(getattr(result, "admitted", result is not None))
+        status = getattr(result, "status", "unknown") if result is not None else "none"
+        status_value = str(getattr(status, "value", status))
+        admitted = bool(getattr(result, "admitted", result is not None))
+        reason_codes = getattr(result, "reason_codes", ()) if result is not None else ()
+        if isinstance(reason_codes, (list, tuple, set)):
+            reason = ",".join(str(code) for code in reason_codes) or status_value
+        else:
+            reason = str(reason_codes or status_value)
+        return ProactiveSubmissionResult(
+            admitted=admitted,
+            # An expired observation can be retried. Ignored/coalesced facts
+            # have already reached a terminal inbox decision.
+            retryable=not admitted and status_value == "expired",
+            status=status_value,
+            reason=reason,
+        )
 
 
-__all__ = ["PersonalRuntimeBridge", "ProactiveObservationSensor"]
+__all__ = [
+    "PersonalRuntimeBridge",
+    "ProactiveObservationSensor",
+    "ProactiveSubmissionResult",
+]

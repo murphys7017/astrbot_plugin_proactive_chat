@@ -7,6 +7,9 @@ import time
 from datetime import datetime
 from typing import Any
 
+from ..domain.session_key import is_group_type, is_group_umo
+
+
 class StateBuilder:
     """构建运行状态、任务卡片、会话摘要与文档列表载荷。"""
 
@@ -56,11 +59,10 @@ class StateBuilder:
         """判断会话属于群聊还是私聊，用于前端展示分类。"""
         parsed = self.plugin.session_service.parse_session_id(session_id)
         if not parsed:
-            lowered = str(session_id).lower()
-            return "group" if "group" in lowered else "friend"
+            return "group" if is_group_umo(str(session_id)) else "friend"
 
         _, msg_type, _ = parsed
-        return "group" if "group" in msg_type.lower() else "friend"
+        return "group" if is_group_type(msg_type) else "friend"
 
     # ------------------------------------------------------------------
     # 计时器卡片

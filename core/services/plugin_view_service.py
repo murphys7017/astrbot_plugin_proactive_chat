@@ -65,15 +65,17 @@ class PluginViewService:
     async def trigger_job(self, umo: str) -> dict[str, Any]:
         plugin = self.plugin
         normalized = plugin.session_service.normalize_session_id(umo)
-        if normalized in plugin.manual_trigger_sessions:
+        normalized, rejection = await plugin.scheduler_service.reserve_manual_trigger(
+            normalized
+        )
+        if rejection:
             return {
                 "ok": False,
                 "session": normalized,
-                "in_progress": True,
-                "message": "该任务正在触发中，请等待当前执行完成",
+                "in_progress": normalized in plugin.manual_trigger_sessions,
+                "message": rejection,
             }
 
-        plugin.manual_trigger_sessions.add(normalized)
         plugin._track_task(
             asyncio.create_task(
                 plugin.check_and_chat(normalized, trigger=TriggerSource.MANUAL)

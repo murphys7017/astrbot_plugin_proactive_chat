@@ -8,12 +8,27 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from astrbot.api import logger
 
-from ..domain.session_key import is_friend_type
+from ...utils.time_utils import is_quiet_time
+from ..domain.session_key import is_friend_type, is_group_type
+
+
+@dataclass(slots=True)
+class SchedulerRuntimeState:
+    """Process-local timer state owned by the scheduler service."""
+
+    group_timers: dict[str, asyncio.TimerHandle] = field(default_factory=dict)
+    session_temp_state: dict[str, dict] = field(default_factory=dict)
+    last_message_times: dict[str, float] = field(default_factory=dict)
+    auto_trigger_baselines: dict[str, float] = field(default_factory=dict)
+    silence_baselines: dict[str, float] = field(default_factory=dict)
+    auto_trigger_timers: dict[str, asyncio.TimerHandle] = field(default_factory=dict)
+    first_message_logged: set[str] = field(default_factory=set)
 
 
 class SchedulerService:
@@ -21,10 +36,12 @@ class SchedulerService:
 
     def __init__(self, plugin: Any) -> None:
         self.plugin = plugin
+        self.runtime_state = SchedulerRuntimeState()
         # 计时器代次表：旧回调据此判断自己是否已被替换。
         self._timer_generations: dict[str, int] = {}
         # 插件页面 finish/reset 会同时操作计时器与任务，按会话串行更安全。
         self._timer_locks: dict[str, asyncio.Lock] = {}
+        self._manual_trigger_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # 自动触发
@@ -38,6 +55,75 @@ class SchedulerService:
 
     def _current_timer_generation(self, key: str) -> int:
         return self._timer_generations.get(key, 0)
+
+    def manual_trigger_rejection(self, session_id: str) -> str | None:
+        """Return the shared policy reason for a manual trigger, if rejected.
+
+        Dashboard and command entry points must make the same decision before
+        they reserve a manual trigger.  The Runtime remains the final gate,
+        but this early check prevents an explicitly disabled session or a quiet
+        hour request from entering the observation inbox.
+        """
+        plugin = self.plugin
+        normalized = plugin.session_service.normalize_session_id(session_id)
+        base_config = plugin.config_service.get_base_session_config(normalized)
+        if base_config is None:
+            parsed = plugin.session_service.parse_session_id(normalized)
+            scope_key = (
+                "group_settings"
+                if parsed and is_group_type(parsed[1])
+                else "friend_settings"
+            )
+            return (
+                f"该会话未命中 {scope_key} 会话列表，插件不会对其主动发送。"
+                "请先在插件配置或 WebUI 中把该会话加入对应列表。"
+            )
+
+        session_config = plugin.config_service.get_session_config(normalized)
+        if not session_config or not session_config.get("enable", False):
+            if base_config.get("enable", False):
+                return "该会话已被单独关闭，请先执行 /主动消息开关 on。"
+            return "该会话所属的全局开关已关闭，请在配置中开启后再试。"
+
+        schedule_settings = session_config.get("schedule_settings", {})
+        if schedule_settings.get("enable_quiet_hours", True) and is_quiet_time(
+            str(schedule_settings.get("quiet_hours", "") or ""),
+            plugin.timezone,
+        ):
+            quiet_hours = str(schedule_settings.get("quiet_hours", "") or "").strip()
+            quiet_label = quiet_hours or "已启用但未设置时段"
+            return (
+                f"当前处于免打扰时段（{quiet_label}），"
+                "主动消息会被拦截。"
+            )
+
+        return None
+
+    async def reserve_manual_trigger(self, session_id: str) -> tuple[str, str | None]:
+        """Atomically validate and reserve a manual trigger slot."""
+        plugin = self.plugin
+        normalized = plugin.session_service.normalize_session_id(session_id)
+        async with self._manual_trigger_lock:
+            if normalized in plugin.manual_trigger_sessions:
+                return normalized, "该任务正在触发中，请等待当前执行完成"
+            rejection = self.manual_trigger_rejection(normalized)
+            if rejection:
+                return normalized, rejection
+            plugin.manual_trigger_sessions.add(normalized)
+        return normalized, None
+
+    def clear_session_runtime_state(
+        self, session_id: str, *, clear_message_time: bool = False
+    ) -> None:
+        """Clear process-local timer state for a session in one place."""
+        plugin = self.plugin
+        normalized = plugin.session_service.normalize_session_id(session_id)
+        plugin.session_temp_state.pop(normalized, None)
+        plugin.auto_trigger_baselines.pop(normalized, None)
+        plugin.silence_baselines.pop(normalized, None)
+        plugin.first_message_logged.discard(normalized)
+        if clear_message_time:
+            plugin.last_message_times.pop(normalized, None)
 
     async def setup_auto_trigger(self, session_id: str, silent: bool = False) -> None:
         """为指定会话设置自动主动消息触发器。"""
@@ -252,7 +338,7 @@ class SchedulerService:
         if not parsed:
             return
 
-        _, msg_type, target_id = parsed
+        platform, msg_type, target_id = parsed
         is_friend = is_friend_type(msg_type)
 
         for job in plugin.scheduler.get_jobs():
@@ -260,8 +346,10 @@ class SchedulerService:
             job_parsed = plugin.session_service.parse_session_id(job_id)
             if not job_parsed:
                 continue
-            _, job_type, job_target = job_parsed
+            job_platform, job_type, job_target = job_parsed
             if is_friend_type(job_type) == is_friend and job_target == target_id:
+                if job_platform != platform:
+                    continue
                 try:
                     plugin.scheduler.remove_job(job.id)
                 except Exception:
@@ -289,7 +377,7 @@ class SchedulerService:
         if not parsed:
             return False
 
-        _, msg_type, target_id = parsed
+        platform, msg_type, target_id = parsed
         is_friend = is_friend_type(msg_type)
         current_time = time.time()
 
@@ -297,9 +385,10 @@ class SchedulerService:
             existing_parsed = plugin.session_service.parse_session_id(existing_id)
             if not existing_parsed:
                 continue
-            _, existing_type, existing_target = existing_parsed
+            existing_platform, existing_type, existing_target = existing_parsed
             if (
-                is_friend_type(existing_type) == is_friend
+                existing_platform == platform
+                and is_friend_type(existing_type) == is_friend
                 and existing_target == target_id
                 and self.is_persisted_task_still_valid(
                     existing_id, session_info, current_time=current_time
@@ -561,15 +650,10 @@ class SchedulerService:
 
         async with plugin.data_lock:
             # 若传入的是非规范键，先把其数据迁移到规范键下。
-            if (
-                normalized_session_id != session_id
-                and session_id in plugin.session_data
-            ):
-                existing_payload = plugin.session_data.get(session_id, {})
-                plugin.session_data.setdefault(normalized_session_id, {}).update(
-                    existing_payload
-                )
-                del plugin.session_data[session_id]
+            plugin.storage_service.migrate_session_key(
+                session_id,
+                normalized_session_id,
+            )
 
             if normalized_session_id != session_id:
                 try:
@@ -995,4 +1079,4 @@ class SchedulerService:
                 expired_sessions.append(session_id)
 
         for session_id in expired_sessions:
-            del plugin.session_temp_state[session_id]
+            self.clear_session_runtime_state(session_id)
