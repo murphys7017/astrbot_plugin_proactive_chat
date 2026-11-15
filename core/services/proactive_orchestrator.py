@@ -35,7 +35,16 @@ class ProactiveOrchestrator:
                 session_config=session_config,
             )
             parsed = plugin.session_service.parse_session_id(normalized)
-            if parsed and is_friend_type(parsed[1]):
+            if not accepted:
+                logger.warning(
+                    "[主动消息] Personal Runtime 未接纳主动事实，已重新排期：session=%s trigger=%s",
+                    normalized,
+                    trigger.value,
+                )
+                await plugin.scheduler_service.schedule_next_chat_and_save(
+                    normalized,
+                )
+            elif parsed and is_friend_type(parsed[1]):
                 await plugin.scheduler_service.schedule_next_chat_and_save(
                     normalized,
                 )

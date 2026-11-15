@@ -2,9 +2,10 @@ name: "astrbot_plugin_proactive_chat"
 display_name: "主动消息 (Proactive Chat)"
 author: "DBJD-CR"
 version: "v1.3.0-beta.2"
-desc: "一个负责主动调度和事实投递的 AstrBot 插件；最终是否表达、人格渲染和消息发送由 Personal Runtime 统一处理，并提供 Dashboard 插件页面。"
+desc: "本项目定制版主动调度插件：依赖 murphys7017/AstrBot 的 Personal Runtime 与 Runtime Observation 接口；最终是否表达、人格渲染和消息发送由 Personal Runtime 统一处理。其他 AstrBot 版本或标准发行版可能不兼容。"
+short_desc: "本项目 Personal Runtime 定制版；其他 AstrBot 版本可能不兼容。"
 repo: "https://github.com/murphys7017/astrbot_plugin_proactive_chat"
-astrbot_version: ">=4.24.0"
+astrbot_version: ">=4.29.0-beta.1"
 support_platforms:
   - aiocqhttp
   - qq_official

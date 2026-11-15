@@ -9,9 +9,9 @@ from __future__ import annotations
 import asyncio
 import time
 
-import astrbot.api.star as star
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.config.astrbot_config import AstrBotConfig
 
 from .core.adapters.event_handlers import EventHandlers
@@ -29,10 +29,10 @@ from .core.store.override_store import OverrideStore
 from .utils.version_utils import get_plugin_version
 
 
-class ProactiveChatPlugin(star.Star):
+class ProactiveChatPlugin(Star):
     """插件的主类：装配容器 + 事件入口 + 容器级状态。"""
 
-    def __init__(self, context: star.Context, config: AstrBotConfig) -> None:
+    def __init__(self, context: Context, config: AstrBotConfig) -> None:
         super().__init__(context)
 
         # 注入的配置对象（由 AstrBot 框架提供）
@@ -42,7 +42,7 @@ class ProactiveChatPlugin(star.Star):
         self.timezone = None
 
         # 使用 StarTools 获取插件专属数据目录（Path 对象）
-        self.data_dir = star.StarTools.get_data_dir("astrbot_plugin_proactive_chat")
+        self.data_dir = StarTools.get_data_dir("astrbot_plugin_proactive_chat")
         self.session_data_file = self.data_dir / "session_data.json"
 
         # 共享锁与持久化数据容器（data_lock 在 initialize 中初始化）
