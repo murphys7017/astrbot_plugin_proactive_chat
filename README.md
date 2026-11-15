@@ -31,6 +31,22 @@
 
 插件需要宿主提供 Runtime Observation Sensor API。旧版 AstrBot 没有这个能力时，插件不会绕过 Personal Runtime 直接发送消息，也不会不断重建无法提交的任务。
 
+### 本地源代码同步
+
+本仓库提供 `deploy_proactive_chat.ps1`，用于把当前源代码同步到本机 AstrBot 的 `data/plugins` 目录。同步前可以先执行预览：
+
+```powershell
+.\deploy_proactive_chat.ps1 -DryRun
+```
+
+确认无误后执行：
+
+```powershell
+.\deploy_proactive_chat.ps1
+```
+
+脚本会从 `metadata.yaml` 读取插件名，只清理和覆盖插件源代码范围内的文件，并保留目标目录中的运行数据目录。同步后需要重载插件或重启 AstrBot。
+
 ## 配置
 
 配置由 `_conf_schema.json` 驱动，只有调度和会话选择相关字段。
