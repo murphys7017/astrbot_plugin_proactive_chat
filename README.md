@@ -1115,6 +1115,9 @@ AstrBot/
 
 ```bash
 # ============================================================
+
+**AG99 定制版本**　murphys7017 为 AG99 桌宠维护的修改保存在 [`refactor/prune-ancillary-services` 分支](https://github.com/murphys7017/astrbot_plugin_proactive_chat/tree/refactor/prune-ancillary-services)。该分支的 README 记录了与上游的具体差异。 [上游项目](https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat)
+
 # 1. 状态查询
 # ============================================================
 
