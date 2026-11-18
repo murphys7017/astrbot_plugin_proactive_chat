@@ -1,5 +1,7 @@
 # 主动消息（Personal Runtime 版）
 
+此分支由 murphys7017 基于 Pancakes-Labs 的主动消息插件修改，将主动调度接入 AG99 的 Personal Runtime。 [原插件](https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat) · [AG99 定制分支](https://github.com/murphys7017/astrbot_plugin_proactive_chat/tree/refactor/prune-ancillary-services)
+
 > **兼容性要求**：这是为本项目 `murphys7017/AstrBot` 定制的插件版本，依赖其中的 Personal Runtime、Runtime Observation Sensor 和 Dashboard 插件视图接口。其他 AstrBot 版本、官方标准发行版或未包含这些接口的分支可能不兼容；请以本项目配套版本为准。
 
 这是一个 AstrBot 主动调度插件。它负责决定“什么时候提交一次主动机会事实”，不负责生成文案，也不直接调用模型或向平台发送消息。
